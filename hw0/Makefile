@@ -1,26 +1,17 @@
 CC=gcc
 CFLAGS=-c -g
 
-all: main wc map
+TARGET=main wc map
 
-main: main.o
-	$(CC) main.o -o main
+all: $(TARGET) clean
 
-main.o:
-	$(CC) $(CFLAGS) main.c
-
-wc: wc.o
-	$(CC) wc.o -o wc
-
-wc.o:
-	$(CC) $(CFLAGS) wc.c
-
-map: map.o
-	$(CC) map.o -o map
-
-map.o:
-	$(CC) $(CFLAGS) map.c
-
+$(TARGET): $(TARGET).c $(TARGET).o 
+	$(CC) $(CFLAGS) $@.c
+	$(CC) $@.o -o $@
+	
 clean:
-	rm *.o main map wc
+	rm *.o
+
+cleanexe:
+	rm main map wc
 
