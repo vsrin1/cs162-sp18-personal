@@ -3,15 +3,18 @@ CFLAGS=-c -g
 
 TARGET=main wc map
 
-all: $(TARGET) clean
+all: $(TARGET)
 
-$(TARGET): $(TARGET).c $(TARGET).o 
+#see https://www.gnu.org/software/make/manual/make.html#Static-Pattern
+$(TARGET): %:%.c
 	$(CC) $(CFLAGS) $@.c
 	$(CC) $@.o -o $@
-	
+
+cleanall: clean cleanexe
+
 clean:
-	rm *.o
+	-rm *.o
 
 cleanexe:
-	rm main map wc
+	-rm main map wc
 
