@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "tokenizer.h"
 
@@ -34,6 +35,8 @@ int cmd_exit(struct tokens *tokens);
 int cmd_help(struct tokens *tokens);
 int cmd_pwd(struct tokens *tokens);
 int cmd_cd(struct tokens *tokens);
+int cmd_exec(struct tokens *tokens);
+int cmd_foo(struct tokens *tokens);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens *tokens);
@@ -50,6 +53,8 @@ fun_desc_t cmd_table[] = {
   {cmd_exit, "exit", "exit the command shell"},
   {cmd_pwd, "pwd", "print name of current/working directory"},
   {cmd_cd, "cd", "change working directory"},
+  {cmd_exec, "exec", "replace current process with another program"},
+  {cmd_foo, "foo", "run test code"},
 };
 
 /* Prints a helpful description for the given command */
@@ -64,6 +69,7 @@ int cmd_exit(unused struct tokens *tokens) {
   exit(0);
 }
 
+/* Prints the current working directory */
 int cmd_pwd(unused struct tokens *tokens) {
   char buf[MAX_PATH];
   if (getcwd(buf, MAX_PATH)) {
@@ -75,6 +81,7 @@ int cmd_pwd(unused struct tokens *tokens) {
   }
 }
 
+/* Change current working directory */
 int cmd_cd(struct tokens *tokens) {
   if (tokens_get_length(tokens) != 2) {
     printf("Must pass in only 1 argument\n");
@@ -86,6 +93,75 @@ int cmd_cd(struct tokens *tokens) {
     printf("Unable to cd to path: %s\n", path);
     return -1;
   }
+  return 0;
+}
+
+bool file_exists(char* name) {
+  return access(name, F_OK) == 0;
+
+}
+
+int strcpyuntil(char* to, const char* from, char until, int startpos) {
+  int i = startpos;
+  int j = 0;
+  while (from[i] != until && from[i] != '\0') {
+    to[j] = from[i];
+    ++i;
+    ++j;
+  }
+  to[j] = '\0';
+  return i;
+}
+
+bool find_file_from_PATH(char* filename) {
+  if (file_exists(filename)) {
+    return true;
+  }
+
+  const char* env = getenv("PATH");
+  char path[MAX_PATH];
+  int pos = -1;
+  while (env[pos] != '\0') {
+    pos = strcpyuntil(path, env, ':', pos + 1);
+    strcat(path, "/");
+    strcat(path, filename);
+    if (file_exists(path)) {
+      strcpy(filename, path);
+      return true;
+    }
+  }
+  return false;
+}
+
+int exec(char** argv) {
+  int i = 0;
+  while (argv[i] != NULL) {
+    ++i;
+  }
+
+  char* filename = argv[0];
+  if (!find_file_from_PATH(filename)) {
+    printf("Unable to find %s\n", filename);
+    return -1;
+  }
+
+  return execv(filename, argv);
+}
+
+int cmd_exec(struct tokens *tokens) {
+  int size = tokens_get_length(tokens);
+  char** argv = malloc(sizeof(char*) * size); // null terminate c_str array
+  for (int i = 1; i < size; ++i) {
+    argv[i - 1] = tokens_get_token(tokens, i);
+  }
+  argv[size - 1] = NULL;
+  int rtn_val = exec(argv);
+  free(argv);
+  return rtn_val;
+}
+
+int cmd_foo(unused struct tokens *tokens) {
+  printf("%s", getenv("PATH"));
   return 0;
 }
 
@@ -145,7 +221,24 @@ int main(unused int argc, unused char *argv[]) {
       cmd_table[fundex].fun(tokens);
     } else {
       /* REPLACE this to run commands as programs. */
-      fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      pid_t cpid = fork();
+      int status = 0;
+      if (cpid > 0) {
+        wait(&status);
+        if(status) {
+          printf("Calling failed, return code: %i\n", status);
+        }
+      } else if (cpid == 0) {
+        int size = tokens_get_length(tokens);
+        char** argv = malloc(sizeof(char*) * (size + 1)); // null terminate c_str array
+        for (int i = 0; i < size; ++i) {
+          argv[i] = tokens_get_token(tokens, i);
+        }
+        argv[size] = NULL;
+        int rtn_val = exec(argv);
+        free(argv);
+        exit(rtn_val);
+      }
     }
 
     if (shell_is_interactive)
