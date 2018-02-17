@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #include "tokenizer.h"
 
@@ -96,11 +97,13 @@ int cmd_cd(struct tokens *tokens) {
   return 0;
 }
 
+/* Check if file exist */
 bool file_exists(char* name) {
   return access(name, F_OK) == 0;
 
 }
 
+/* Copy from to to until reach until */
 int strcpyuntil(char* to, const char* from, char until, int startpos) {
   int i = startpos;
   int j = 0;
@@ -113,6 +116,8 @@ int strcpyuntil(char* to, const char* from, char until, int startpos) {
   return i;
 }
 
+/* Change filename to correct path to file, return true if success 
+ * Please make sure filename is big enough to hold the path */
 bool find_file_from_PATH(char* filename) {
   if (file_exists(filename)) {
     return true;
@@ -133,21 +138,39 @@ bool find_file_from_PATH(char* filename) {
   return false;
 }
 
-int exec(char** argv) {
-  int i = 0;
-  while (argv[i] != NULL) {
-    ++i;
-  }
-
+/* Replace current process by executing argv */
+int exec(int argc, char** argv) {
   char* filename = argv[0];
   if (!find_file_from_PATH(filename)) {
     printf("Unable to find %s\n", filename);
     return -1;
   }
 
+  // Handle io redirect
+  if (argc > 2) {
+    // Reirect output if “[process] > [file]”
+    if (strcmp(argv[argc - 2], ">") == 0) {
+      int fout = open(argv[argc - 1], O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+      if (dup2(fout, STDOUT_FILENO) < 0) {
+        printf("redir failed");
+      };
+      close(fout);
+      argv[argc - 2] = '\0';
+    } else if (strcmp(argv[argc - 2], "<") == 0) {  
+      // Redirect input if “[process] < [file]”
+      int fin = open(argv[argc - 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+      if (dup2(fin, STDIN_FILENO) < 0) {
+        printf("redir failed");
+      };
+      close(fin);
+      argv[argc - 2] = '\0';
+    }
+  }
+
   return execv(filename, argv);
 }
 
+/* replace the shell with command called by arguments */
 int cmd_exec(struct tokens *tokens) {
   int size = tokens_get_length(tokens);
   char** argv = malloc(sizeof(char*) * size); // null terminate c_str array
@@ -155,7 +178,7 @@ int cmd_exec(struct tokens *tokens) {
     argv[i - 1] = tokens_get_token(tokens, i);
   }
   argv[size - 1] = NULL;
-  int rtn_val = exec(argv);
+  int rtn_val = exec(size - 1, argv);
   free(argv);
   return rtn_val;
 }
@@ -235,7 +258,7 @@ int main(unused int argc, unused char *argv[]) {
           argv[i] = tokens_get_token(tokens, i);
         }
         argv[size] = NULL;
-        int rtn_val = exec(argv);
+        int rtn_val = exec(size, argv);
         free(argv);
         exit(rtn_val);
       }
