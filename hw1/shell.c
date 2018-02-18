@@ -14,6 +14,7 @@
 
 #include "tokenizer.h"
 #include "int_handler.h"
+#include "utils.h"
 
 /* Maximun number of character of a path */
 #define MAX_PATH 1024
@@ -38,6 +39,7 @@ int cmd_help(struct tokens *tokens);
 int cmd_pwd(struct tokens *tokens);
 int cmd_cd(struct tokens *tokens);
 int cmd_exec(struct tokens *tokens);
+int cmd_wait(struct tokens *tokens);
 int cmd_foo(struct tokens *tokens);
 
 /* Built-in command functions take token array (see parse.h) and return int */
@@ -56,6 +58,7 @@ fun_desc_t cmd_table[] = {
   {cmd_pwd, "pwd", "print name of current/working directory"},
   {cmd_cd, "cd", "change working directory"},
   {cmd_exec, "exec", "replace current process with another program"},
+  {cmd_wait, "wait", "wait for all background jobs to finish"},
   {cmd_foo, "foo", "run test code"},
 };
 
@@ -139,6 +142,32 @@ bool find_file_from_PATH(char* filename) {
   return false;
 }
 
+int redir_input(char* s) {
+  if (s == NULL) {
+    printf("Unexpected end of input");
+    return -1;
+  }
+
+  int fin = open(s, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+  PRINTR_IF_NEG(fin, "Failed to open file\n");
+  PRINTR_IF_NEG(dup2(fin, STDIN_FILENO), "Failed to redirect input.\n")
+  close(fin);
+  return 0;
+}
+
+int redir_output(char* s) {
+  if (s == NULL) {
+    printf("Unexpected end of input");
+    return -1;
+  }
+
+  int fin = open(s, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+  PRINTR_IF_NEG(fin, "Failed to open file\n");
+  PRINTR_IF_NEG(dup2(fin, STDOUT_FILENO), "Failed to redirect output\n")
+  close(fin);
+  return 0;
+}
+
 /* Replace current process by executing argv */
 int exec(int argc, char** argv) {
   char* filename = argv[0];
@@ -147,24 +176,14 @@ int exec(int argc, char** argv) {
     return -1;
   }
 
-  // Handle io redirect
-  if (argc > 2) {
-    // Reirect output if “[process] > [file]”
-    if (strcmp(argv[argc - 2], ">") == 0) {
-      int fout = open(argv[argc - 1], O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-      if (dup2(fout, STDOUT_FILENO) < 0) {
-        printf("redir failed");
-      };
-      close(fout);
-      argv[argc - 2] = '\0';
-    } else if (strcmp(argv[argc - 2], "<") == 0) {  
-      // Redirect input if “[process] < [file]”
-      int fin = open(argv[argc - 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-      if (dup2(fin, STDIN_FILENO) < 0) {
-        printf("redir failed");
-      };
-      close(fin);
-      argv[argc - 2] = '\0';
+  /* Handle io redirect */
+  for (int i = 1; i < argc; ++i) {
+    if (strcmp(argv[i], ">") == 0) {
+      RTN_IF_NEG(redir_output(argv[i + 1]));
+      argv[i++] = '\0';
+    } else if (strcmp(argv[i], "<") == 0) {  
+      RTN_IF_NEG(redir_input(argv[i + 1]));
+      argv[i++] = '\0';
     }
   }
 
@@ -182,6 +201,42 @@ int cmd_exec(struct tokens *tokens) {
   int rtn_val = exec(size - 1, argv);
   free(argv);
   return rtn_val;
+}
+
+/* Helper for cmd_wait */
+int wait_child_process_finish(pid_t cpid) {
+  int status;
+  cpid = waitpid(cpid, &status, 0);
+  if (cpid < 0) {
+    printf("Nothing is running\n");
+    return -1;
+  }
+  printf("process %i exits with %i\n", cpid, status);
+  /*
+  sprintf(scpid, "%i", cpid);
+  strcpy(path, "/proc/");
+  strcat(path, scpid);
+  strcat(path, "/cmdline");
+  FILE* fin = fopen(path, "r");
+  fgets(comm, MAX_PATH, fin);
+  fclose(fin);
+  printf("process %s with pid %i exits %i\n", comm, cpid, status);
+  */
+  return 0;
+}
+
+/* Wait for all child processes */
+int cmd_wait(struct tokens *tokens) {
+  int size = tokens_get_length(tokens);
+
+  if (size == 1) {
+    return wait_child_process_finish(-1);
+  }
+
+  for (int i = 1; i < size; ++i) {
+    wait_child_process_finish(atoi(tokens_get_token(tokens, i)));
+  }
+  return 0;
 }
 
 int cmd_foo(unused struct tokens *tokens) {
@@ -252,13 +307,14 @@ int main(unused int argc, unused char *argv[]) {
       int status = 0;
       if (cpid > 0) {
         setpgid(cpid, cpid); // Make child process its own process group
-        tcsetpgrp(STDIN_FILENO, cpid); // Set forground to child process
-        
-        wait(&status);
-        if(status) {
-          printf("Calling failed, return code: %i\n", status);
+        if (strcmp(tokens_get_token(tokens, tokens_get_length(tokens) - 1), "&") != 0) {
+          tcsetpgrp(STDIN_FILENO, cpid); // Set forground to child process
+          wait(&status);
+          if(status) {
+            printf("Calling failed, return code: %i\n", status);
+          }
+          tcsetpgrp(STDIN_FILENO, shell_pgid); // Set forground back to shell
         }
-        tcsetpgrp(STDIN_FILENO, shell_pgid); // Set forground back to shell
       } else if (cpid == 0) {
         /* Set interrupt handler */
         signal(SIGINT, int_handler);
