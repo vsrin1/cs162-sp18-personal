@@ -223,7 +223,7 @@ void init_shell() {
   }
 
   /* Set interrupt handler */
-  signal(SIGINT, int_handler);
+  signal(SIGTTOU, SIG_IGN);
 }
 
 int main(unused int argc, unused char *argv[]) {
@@ -253,16 +253,13 @@ int main(unused int argc, unused char *argv[]) {
       if (cpid > 0) {
         setpgid(cpid, cpid); // Make child process its own process group
         tcsetpgrp(STDIN_FILENO, cpid); // Set forground to child process
-        signal(SIGTTOU, SIG_IGN);
+        
         wait(&status);
         if(status) {
           printf("Calling failed, return code: %i\n", status);
         }
-        tcsetpgrp(STDIN_FILENO, shell_pgid); // Set forground to child process
-
+        tcsetpgrp(STDIN_FILENO, shell_pgid); // Set forground back to shell
       } else if (cpid == 0) {
-        signal(SIGTTOU, SIG_IGN);
-
         /* Set interrupt handler */
         signal(SIGINT, int_handler);
 
