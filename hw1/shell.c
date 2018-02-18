@@ -13,6 +13,7 @@
 #include <fcntl.h>
 
 #include "tokenizer.h"
+#include "int_handler.h"
 
 /* Maximun number of character of a path */
 #define MAX_PATH 1024
@@ -220,6 +221,9 @@ void init_shell() {
     /* Save the current termios to a variable, so it can be restored later. */
     tcgetattr(shell_terminal, &shell_tmodes);
   }
+
+  /* Set interrupt handler */
+  signal(SIGINT, int_handler);
 }
 
 int main(unused int argc, unused char *argv[]) {
@@ -247,11 +251,22 @@ int main(unused int argc, unused char *argv[]) {
       pid_t cpid = fork();
       int status = 0;
       if (cpid > 0) {
+        setpgid(cpid, cpid); // Make child process its own process group
+        tcsetpgrp(STDIN_FILENO, cpid); // Set forground to child process
+        signal(SIGTTOU, SIG_IGN);
         wait(&status);
         if(status) {
           printf("Calling failed, return code: %i\n", status);
         }
+        tcsetpgrp(STDIN_FILENO, shell_pgid); // Set forground to child process
+
       } else if (cpid == 0) {
+        signal(SIGTTOU, SIG_IGN);
+
+        /* Set interrupt handler */
+        signal(SIGINT, int_handler);
+
+        // Construct argv
         int size = tokens_get_length(tokens);
         char** argv = malloc(sizeof(char*) * (size + 1)); // null terminate c_str array
         for (int i = 0; i < size; ++i) {
