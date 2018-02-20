@@ -31,6 +31,10 @@ char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
 
+/* Maximun number of character of a fullpath */
+#define MAX_PATH 1024
+#define MAX_FILE_SIZE 4096
+
 
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
@@ -52,15 +56,51 @@ void handle_files_request(int fd) {
 
   struct http_request *request = http_request_parse(fd);
 
-  http_start_response(fd, 200);
-  http_send_header(fd, "Content-Type", "text/html");
-  http_end_headers(fd);
-  http_send_string(fd,
-      "<center>"
-      "<h1>Welcome to httpserver!</h1>"
-      "<hr>"
-      "<p>Nothing's here yet.</p>"
-      "</center>");
+  struct stat s;
+  char fullpath[MAX_PATH];
+  strcpy(fullpath, server_files_directory);
+  strcat(fullpath, request->path);
+  if (stat(fullpath, &s) != 0) {
+    printf("file not found\n");
+    http_start_response(fd, 404);
+    http_send_header(fd, "Content-Type", "text/html");
+    http_end_headers(fd);
+    http_send_string(fd,
+        "<center>"
+        "<h1>FILE NOT FOUND!</h1>"
+        "<hr>"
+        "<p>Nothing's here yet.</p>"
+        "</center>");
+    close(fd);
+    return;
+  }
+
+  if (S_ISDIR(s.st_mode)) {
+    printf("dir found\n");
+    http_start_response(fd, 200);
+    http_send_header(fd, "Content-Type", "text/html");
+    http_end_headers(fd);
+    http_send_string(fd,
+        "<center>"
+        "<h1>Welcome to httpserver!</h1>"
+        "<hr>"
+        "<p>Nothing's here yet. Is Dir</p>"
+        "</center>");
+  } else if (S_ISREG(s.st_mode)) {
+    printf("file found\n");
+    http_start_response(fd, 200);
+    http_send_header(fd, "Content-Type", http_get_mime_type(fullpath));
+    http_end_headers(fd);
+
+    char content[MAX_FILE_SIZE];
+    int fin = open(fullpath, O_RDONLY);
+    size_t n = read(fin, content, MAX_FILE_SIZE);
+    close(fin);
+    http_send_data(fd, content, n);
+  }
+  close(fd);
+
+  
 }
 
 
