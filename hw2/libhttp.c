@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include "libhttp.h"
 
@@ -143,4 +144,36 @@ char *http_get_mime_type(char *file_name) {
   } else {
     return "text/plain";
   }
+}
+
+size_t http_get_list_files(const char* http_files_dir, char* request_path, char* buff, size_t size) {
+  int n, total = 0;
+  char fullpath[MAX_PATH];
+  strcpy(fullpath, http_files_dir);
+  strcat(fullpath, request_path);
+  char href[MAX_PATH];
+  DIR *d;
+  struct dirent *dir;
+  d = opendir(fullpath);
+  if (d) {
+    while ((dir = readdir(d)) != NULL) {
+      strcpy(href, request_path);
+      if (href[strlen(href) - 1] != '/') {
+        strcat(href, "/");
+      }
+      strcat(href, dir->d_name);
+      if (strcmp(dir->d_name, ".") == 0) {
+        n = snprintf(buff, size, "<a href=\"/\">%s</a><br />\n", dir->d_name);
+      } else if (strcmp(dir->d_name, "..") == 0) {
+        n = snprintf(buff, size, "<a href=\"..\">%s</a><br />\n", dir->d_name);
+      } else {
+        n = snprintf(buff, size, "<a href=\"%s\">%s</a><br />\n", href, dir->d_name);
+      }
+      size -= n;
+      buff += n;
+      total += n;
+    }
+    closedir(d);
+  }
+  return total;
 }

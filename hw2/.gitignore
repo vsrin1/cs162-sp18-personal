@@ -38,3 +38,6 @@
 # Debug files
 *.dSYM/
 *.su
+
+# Public files
+files/

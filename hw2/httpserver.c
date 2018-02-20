@@ -31,10 +31,6 @@ char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
 
-/* Maximun number of character of a fullpath */
-#define MAX_PATH 1024
-#define MAX_FILE_SIZE 4096
-
 
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
@@ -53,9 +49,9 @@ void handle_files_request(int fd) {
    * TODO: Your solution for Task 1 goes here! Feel free to delete/modify *
    * any existing code.
    */
-
+  printf("enter handle_files_request %i\n", fd);
   struct http_request *request = http_request_parse(fd);
-
+  printf("method: %s \tpath:%s\n", request->method, request->path);;
   struct stat s;
   char fullpath[MAX_PATH];
   strcpy(fullpath, server_files_directory);
@@ -80,12 +76,10 @@ void handle_files_request(int fd) {
     http_start_response(fd, 200);
     http_send_header(fd, "Content-Type", "text/html");
     http_end_headers(fd);
-    http_send_string(fd,
-        "<center>"
-        "<h1>Welcome to httpserver!</h1>"
-        "<hr>"
-        "<p>Nothing's here yet. Is Dir</p>"
-        "</center>");
+
+    char content[MAX_FILE_SIZE];
+    size_t n = http_get_list_files(server_files_directory, request->path, content, MAX_FILE_SIZE);
+    http_send_data(fd, content, n);
   } else if (S_ISREG(s.st_mode)) {
     printf("file found\n");
     http_start_response(fd, 200);
@@ -99,8 +93,6 @@ void handle_files_request(int fd) {
     http_send_data(fd, content, n);
   }
   close(fd);
-
-  
 }
 
 
