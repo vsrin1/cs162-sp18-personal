@@ -165,7 +165,7 @@ size_t http_get_list_files(const char* http_files_dir, char* request_path, char*
       if (strcmp(dir->d_name, ".") == 0) {
         n = snprintf(buff, size, "<a href=\"/\">%s</a><br />\n", dir->d_name);
       } else if (strcmp(dir->d_name, "..") == 0) {
-        n = snprintf(buff, size, "<a href=\"..\">%s</a><br />\n", dir->d_name);
+        n = snprintf(buff, size, "<a href=\"../\">%s</a><br />\n", dir->d_name);
       } else {
         n = snprintf(buff, size, "<a href=\"%s\">%s</a><br />\n", href, dir->d_name);
       }

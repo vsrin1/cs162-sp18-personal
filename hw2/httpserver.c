@@ -13,7 +13,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <unistd.h>
 
 #include "libhttp.h"
 #include "wq.h"
@@ -155,11 +154,31 @@ void handle_proxy_request(int fd) {
   */
 }
 
+void* worker_work(void* arg) {
+  void (*request_handler)(int) = arg;
+  pthread_mutex_lock(&work_queue.lock);
+  while(1) {
+    printf("%i\n", work_queue.size);
+    if (work_queue.size > 0) {
+      int fd = wq_pop(&work_queue);
+      pthread_mutex_unlock(&work_queue.lock);
+      request_handler(fd);
+    } else {
+      pthread_cond_wait(&work_queue.cv, &work_queue.lock);
+    }
+  }
+  return NULL;
+}
 
 void init_thread_pool(int num_threads, void (*request_handler)(int)) {
   /*
    * TODO: Part of your solution for Task 2 goes here!
    */
+  pthread_t thread;
+  for (int i = 0; i < num_threads; ++i) {
+    pthread_create(&thread, NULL, worker_work, request_handler);
+  }
+  printf("%i threads created\n", num_threads);
 }
 
 /*
@@ -220,8 +239,12 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
         client_address.sin_port);
 
     // TODO: Change me?
-    request_handler(client_socket_number);
-    close(client_socket_number);
+    pthread_mutex_lock(&work_queue.lock);
+    wq_push(&work_queue, client_socket_number);
+    pthread_cond_signal(&work_queue.cv);
+    pthread_mutex_unlock(&work_queue.lock);
+    // request_handler(client_socket_number);
+    // close(client_socket_number);
 
     printf("Accepted connection from %s on port %d\n",
         inet_ntoa(client_address.sin_addr),
