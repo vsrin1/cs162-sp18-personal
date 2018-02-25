@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "libhttp.h"
 #include "wq.h"
@@ -29,6 +30,8 @@ int server_port;
 char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
+pthread_t* thread_arr;
+time_t start_time;
 
 
 /*
@@ -48,9 +51,12 @@ void handle_files_request(int fd) {
    * TODO: Your solution for Task 1 goes here! Feel free to delete/modify *
    * any existing code.
    */
-  printf("enter handle_files_request %i\n", fd);
+  static int served = 0;
   struct http_request *request = http_request_parse(fd);
-  printf("method: %s \tpath:%s\n", request->method, request->path);;
+  if (request == NULL) {
+    close(fd);
+    return;
+  }
   struct stat s;
   char fullpath[MAX_PATH];
   strcpy(fullpath, server_files_directory);
@@ -67,11 +73,12 @@ void handle_files_request(int fd) {
         "<p>Nothing's here yet.</p>"
         "</center>");
     close(fd);
+    http_request_free(request);
     return;
   }
 
   if (S_ISDIR(s.st_mode)) {
-    printf("dir found\n");
+    printf("Serving directory '%s':\n", request->path);
     http_start_response(fd, 200);
     http_send_header(fd, "Content-Type", "text/html");
     http_end_headers(fd);
@@ -80,7 +87,7 @@ void handle_files_request(int fd) {
     size_t n = http_get_list_files(server_files_directory, request->path, content, MAX_FILE_SIZE);
     http_send_data(fd, content, n);
   } else if (S_ISREG(s.st_mode)) {
-    printf("file found\n");
+    printf("Serving file '%s':\n", request->path);
     http_start_response(fd, 200);
     http_send_header(fd, "Content-Type", http_get_mime_type(fullpath));
     http_end_headers(fd);
@@ -91,7 +98,11 @@ void handle_files_request(int fd) {
     close(fin);
     http_send_data(fd, content, n);
   }
+  time_t t;
+  time(&t);
+  printf("Finish serving. Total served: %i. Time: %lf\n", ++served, difftime(t, start_time));
   close(fd);
+  http_request_free(request);
 }
 
 
@@ -158,11 +169,12 @@ void* worker_work(void* arg) {
   void (*request_handler)(int) = arg;
   pthread_mutex_lock(&work_queue.lock);
   while(1) {
-    printf("%i\n", work_queue.size);
+    printf("queue size:%i\tthread id: %i\n", work_queue.size, (unsigned int)(pthread_self() % 100));
     if (work_queue.size > 0) {
       int fd = wq_pop(&work_queue);
       pthread_mutex_unlock(&work_queue.lock);
       request_handler(fd);
+      close(fd);
     } else {
       pthread_cond_wait(&work_queue.cv, &work_queue.lock);
     }
@@ -174,9 +186,9 @@ void init_thread_pool(int num_threads, void (*request_handler)(int)) {
   /*
    * TODO: Part of your solution for Task 2 goes here!
    */
-  pthread_t thread;
+  pthread_t* ptr = thread_arr = malloc(sizeof(pthread_t) * num_threads);
   for (int i = 0; i < num_threads; ++i) {
-    pthread_create(&thread, NULL, worker_work, request_handler);
+    pthread_create(ptr++, NULL, worker_work, request_handler);
   }
   printf("%i threads created\n", num_threads);
 }
@@ -238,13 +250,17 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
         inet_ntoa(client_address.sin_addr),
         client_address.sin_port);
 
-    // TODO: Change me?
-    pthread_mutex_lock(&work_queue.lock);
-    wq_push(&work_queue, client_socket_number);
-    pthread_cond_signal(&work_queue.cv);
-    pthread_mutex_unlock(&work_queue.lock);
-    // request_handler(client_socket_number);
-    // close(client_socket_number);
+    if (num_threads == 0) {
+      request_handler(client_socket_number);
+      close(client_socket_number);
+    } else {
+      pthread_mutex_lock(&work_queue.lock);
+      wq_push(&work_queue, client_socket_number);
+      pthread_cond_signal(&work_queue.cv);
+      pthread_mutex_unlock(&work_queue.lock);
+    }
+
+    
 
     printf("Accepted connection from %s on port %d\n",
         inet_ntoa(client_address.sin_addr),
@@ -260,6 +276,16 @@ void signal_callback_handler(int signum) {
   printf("Caught signal %d: %s\n", signum, strsignal(signum));
   printf("Closing socket %d\n", server_fd);
   if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
+  /* Exit worker threads */
+  if (num_threads > 0)  {
+    for (int i = 0; i < num_threads; ++i) {
+      pthread_kill(thread_arr[i], SIGKILL);
+    }
+    for (int i = 0; i < num_threads; ++i) {
+      pthread_join(thread_arr[i], NULL);
+    }
+    free(thread_arr); 
+  }
   exit(0);
 }
 
@@ -277,7 +303,9 @@ int main(int argc, char **argv) {
 
   /* Default settings */
   server_port = 8000;
+  num_threads = 0;
   void (*request_handler)(int) = NULL;
+  time(&start_time);
 
   int i;
   for (i = 1; i < argc; i++) {
