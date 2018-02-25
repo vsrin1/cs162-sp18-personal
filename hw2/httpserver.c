@@ -170,7 +170,10 @@ void* worker_work(void* arg) {
   pthread_mutex_lock(&work_queue.lock);
   while(1) {
     printf("queue size:%i\tthread id: %i\n", work_queue.size, (unsigned int)(pthread_self() % 100));
-    if (work_queue.size > 0) {
+    if (work_queue.shutdown) {
+      pthread_mutex_unlock(&work_queue.lock);
+      break;
+    } else if (work_queue.size > 0) {
       int fd = wq_pop(&work_queue);
       pthread_mutex_unlock(&work_queue.lock);
       request_handler(fd);
@@ -278,9 +281,10 @@ void signal_callback_handler(int signum) {
   if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
   /* Exit worker threads */
   if (num_threads > 0)  {
-    for (int i = 0; i < num_threads; ++i) {
-      pthread_kill(thread_arr[i], SIGKILL);
-    }
+    pthread_mutex_lock(&work_queue.lock);
+    work_queue.shutdown = 1;
+    pthread_cond_broadcast(&work_queue.cv);
+    pthread_mutex_unlock(&work_queue.lock);
     for (int i = 0; i < num_threads; ++i) {
       pthread_join(thread_arr[i], NULL);
     }

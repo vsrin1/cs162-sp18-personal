@@ -11,6 +11,7 @@ void wq_init(wq_t *wq) {
 
   wq->size = 0;
   wq->head = NULL;
+  wq->shutdown = 0;
 }
 
 /* Remove an item from the WQ. This function should block until there
