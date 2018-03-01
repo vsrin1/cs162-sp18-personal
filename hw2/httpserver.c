@@ -33,6 +33,12 @@ int server_proxy_port;
 pthread_t* thread_arr;
 time_t start_time;
 
+/* Forward declearion */
+typedef struct fd_pair {
+  int from;
+  int to;
+} fd_pair;
+void* proxy_child_thread_work(void* arg);
 
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
@@ -108,16 +114,16 @@ void handle_files_request(int fd) {
 
 /*
  * Opens a connection to the proxy target (hostname=server_proxy_hostname and
- * port=server_proxy_port) and relays traffic to/from the stream fd and the
- * proxy target. HTTP requests from the client (fd) should be sent to the
+ * port=server_proxy_port) and relays traffic to/from the stream client_socket_fd and the
+ * proxy target. HTTP requests from the client (client_socket_fd) should be sent to the
  * proxy target, and HTTP responses from the proxy target should be sent to
- * the client (fd).
+ * the client (client_socket_fd).
  *
  *   +--------+     +------------+     +--------------+
  *   | client | <-> | httpserver | <-> | proxy target |
  *   +--------+     +------------+     +--------------+
  */
-void handle_proxy_request(int fd) {
+void handle_proxy_request(int client_socket_fd) {
 
   /*
   * The code below does a DNS lookup of server_proxy_hostname and 
@@ -131,8 +137,8 @@ void handle_proxy_request(int fd) {
 
   struct hostent *target_dns_entry = gethostbyname2(server_proxy_hostname, AF_INET);
 
-  int client_socket_fd = socket(PF_INET, SOCK_STREAM, 0);
-  if (client_socket_fd == -1) {
+  int server_socket_fd = socket(PF_INET, SOCK_STREAM, 0);
+  if (server_socket_fd == -1) {
     fprintf(stderr, "Failed to create a new socket: error %d: %s\n", errno, strerror(errno));
     exit(errno);
   }
@@ -145,17 +151,17 @@ void handle_proxy_request(int fd) {
   char *dns_address = target_dns_entry->h_addr_list[0];
 
   memcpy(&target_address.sin_addr, dns_address, sizeof(target_address.sin_addr));
-  int connection_status = connect(client_socket_fd, (struct sockaddr*) &target_address,
+  int connection_status = connect(server_socket_fd, (struct sockaddr*) &target_address,
       sizeof(target_address));
 
   if (connection_status < 0) {
     /* Dummy request parsing, just to be compliant. */
-    http_request_parse(fd);
+    http_request_parse(client_socket_fd);
 
-    http_start_response(fd, 502);
-    http_send_header(fd, "Content-Type", "text/html");
-    http_end_headers(fd);
-    http_send_string(fd, "<center><h1>502 Bad Gateway</h1><hr></center>");
+    http_start_response(client_socket_fd, 502);
+    http_send_header(client_socket_fd, "Content-Type", "text/html");
+    http_end_headers(client_socket_fd);
+    http_send_string(client_socket_fd, "<center><h1>502 Bad Gateway</h1><hr></center>");
     return;
 
   }
@@ -163,6 +169,39 @@ void handle_proxy_request(int fd) {
   /* 
   * TODO: Your solution for task 3 belongs here! 
   */
+
+  /* Threading pooling is not implemented */
+  /* TODO: implement threading pooling */
+  /* Create a child thread for client->server connection */
+  pthread_t thread_sc;
+  pthread_create(&thread_sc, NULL, proxy_child_thread_work, &(fd_pair){ .from = client_socket_fd, .to = server_socket_fd });
+  /* Create a child thread for server->client connection */
+  pthread_t thread_cs;
+  pthread_create(&thread_cs, NULL, proxy_child_thread_work, &(fd_pair){ .from = server_socket_fd, .to = client_socket_fd });
+  /* Wait for child thread to finish */
+  pthread_join(thread_cs, NULL);
+  pthread_join(thread_sc, NULL);
+  printf("Finish handling proxy\n");
+}
+
+void* proxy_child_thread_work(void* arg) {
+  int thread = (unsigned int)(pthread_self() % 100);
+  printf("thread: %i\tstart proxy \n", thread);
+  int from_fd = ((fd_pair*)arg)->from;
+  int to_fd = ((fd_pair*)arg)->to;
+
+  ssize_t size = MAX_FILE_SIZE;
+  char buffer[size];
+
+  while ((size = read(from_fd, buffer, MAX_FILE_SIZE)) > 0) {
+    printf("thread: %i\treads size: %li\n", thread, size);
+    size = write(to_fd, buffer, size);
+    printf("thread: %i\twrites size: %li\n", thread, size);
+  }
+  close(from_fd);
+  close(to_fd);
+  printf("thread: %i\tend proxy \n", thread);
+  return NULL;
 }
 
 void* worker_work(void* arg) {
