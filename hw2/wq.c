@@ -6,9 +6,12 @@
 void wq_init(wq_t *wq) {
 
   /* TODO: Make me thread-safe! */
+  pthread_mutex_init(&(wq->lock), NULL);
+  pthread_cond_init(&(wq->cv), NULL);
 
   wq->size = 0;
   wq->head = NULL;
+  wq->shutdown = 0;
 }
 
 /* Remove an item from the WQ. This function should block until there

@@ -20,6 +20,10 @@
 #ifndef LIBHTTP_H
 #define LIBHTTP_H
 
+#define MAX_PATH 1024
+#define MAX_FILE_SIZE 4096
+
+
 /*
  * Functions for parsing an HTTP request.
  */
@@ -29,6 +33,7 @@ struct http_request {
 };
 
 struct http_request *http_request_parse(int fd);
+void http_request_free(struct http_request* request);
 
 /*
  * Functions for sending an HTTP response.
@@ -40,8 +45,11 @@ void http_send_string(int fd, char *data);
 void http_send_data(int fd, char *data, size_t size);
 
 /*
- * Helper function: gets the Content-Type based on a file name.
+ * Helper functions
  */
+/* Gets the Content-Type based on a file name. */
 char *http_get_mime_type(char *file_name);
+/* Gets list of files from path in html */
+size_t http_get_list_files(const char* http_files_dir, char* request_path, char* buff, size_t size);
 
 #endif

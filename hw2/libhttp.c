@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include "libhttp.h"
 
@@ -14,7 +15,7 @@ void http_fatal_error(char *message) {
 }
 
 struct http_request *http_request_parse(int fd) {
-  struct http_request *request = malloc(sizeof(struct http_request));
+  struct http_request *request = calloc(1, sizeof(struct http_request));
   if (!request) http_fatal_error("Malloc failed");
 
   char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
@@ -22,6 +23,7 @@ struct http_request *http_request_parse(int fd) {
 
   int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
   read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
+  printf("\n--------------------\nRequest start %i:\n%sRequest end\n", fd, read_buffer);
 
   char *read_start, *read_end;
   size_t read_size;
@@ -61,10 +63,16 @@ struct http_request *http_request_parse(int fd) {
   } while (0);
 
   /* An error occurred. */
-  free(request);
+  http_request_free(request);
   free(read_buffer);
   return NULL;
 
+}
+
+void http_request_free(struct http_request* request) {
+  if (request->method) free(request->method);
+  if (request->path) free(request->path);
+  free(request);
 }
 
 char* http_get_response_message(int status_code) {
@@ -143,4 +151,36 @@ char *http_get_mime_type(char *file_name) {
   } else {
     return "text/plain";
   }
+}
+
+size_t http_get_list_files(const char* http_files_dir, char* request_path, char* buff, size_t size) {
+  int n, total = 0;
+  char fullpath[MAX_PATH];
+  strcpy(fullpath, http_files_dir);
+  strcat(fullpath, request_path);
+  char href[MAX_PATH];
+  DIR *d;
+  struct dirent *dir;
+  d = opendir(fullpath);
+  if (d) {
+    while ((dir = readdir(d)) != NULL) {
+      strcpy(href, request_path);
+      if (href[strlen(href) - 1] != '/') {
+        strcat(href, "/");
+      }
+      strcat(href, dir->d_name);
+      if (strcmp(dir->d_name, ".") == 0) {
+        n = snprintf(buff, size, "<a href=\"/\">%s</a><br />\n", dir->d_name);
+      } else if (strcmp(dir->d_name, "..") == 0) {
+        n = snprintf(buff, size, "<a href=\"../\">%s</a><br />\n", dir->d_name);
+      } else {
+        n = snprintf(buff, size, "<a href=\"%s\">%s</a><br />\n", href, dir->d_name);
+      }
+      size -= n;
+      buff += n;
+      total += n;
+    }
+    closedir(d);
+  }
+  return total;
 }
