@@ -118,5 +118,19 @@ void mm_free(void *ptr) {
 
     /* assuming this is a valid ptr. the specs say nothing about error handling */
     memblock* block = ptr - sizeof(memblock);
+    
+    /* free current block */
     block->free = true;
+
+    /* if next block is free, annex it */
+    if (block->next && block->next->free) {
+        printf("annex next block with size: %i\n", (int)block->next->size);
+        block->size += sizeof(memblock) + block->next->size;
+    }
+
+    /* if next block is free, donate my space */
+    if (block->prev && block->prev->free) {
+        printf("donate current with size with size: %i\n", (int)block->size);
+        block->prev->size += sizeof(memblock) + block->size;
+    }
 }
